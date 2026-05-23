@@ -78,11 +78,11 @@ def initialize(args, entity, exp_name, project_name):
         wandb.init(
             entity=entity,
             project=project_name,
-            name=exp_name,
+            # name=exp_name,
             config=config_dict,
-            id=generate_run_id(exp_name),
-            resume="allow",
-            reinit=True,
+            # id=generate_run_id(exp_name),
+            # resume="allow",
+            # reinit=True,
         )
 
 

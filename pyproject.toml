@@ -32,11 +32,6 @@ dependencies = [
   "wandb==0.23.1",
   "webdataset==1.0.2",
   "lpips==0.1.4",
-  "gram-newton-schulz",
-  "dpg-evaluator",
-  "geneval-evaluator",
-  "t2v-metrics",
-  "fd-evaluator",
   "clip",
 ]
 

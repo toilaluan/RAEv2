@@ -79,7 +79,8 @@ class NormAttention(nn.Module):
         v = self.v(x).reshape(B, N, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
         q = self.q_norm(q)
         k = self.k_norm(k)
-        q, k = rope(q), rope(k)
+        if rope is not None:
+            q, k = rope(q), rope(k)
         out = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask)
         out = out.permute(0, 2, 1, 3).reshape(B, N, self.dim)
         return self.proj(out)

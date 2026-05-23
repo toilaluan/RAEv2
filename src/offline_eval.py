@@ -75,6 +75,8 @@ def main(args):
     autocast_kwargs = get_autocast_kwargs(args)
 
     config: Stage2Config = OmegaConf.to_object(OmegaConf.merge(OmegaConf.structured(Stage2Config), OmegaConf.load(args.config)))
+    if args.ckpt is not None:
+        config.stage_2.ckpt = args.ckpt
     config.post_process()
     validate_stage2_config(config)
 
@@ -208,7 +210,7 @@ def _run_npz_only(args):
 
     logger.info(f"[npz mode] config: {args.config}")
     logger.info(f"[npz mode] npz: {args.npz}")
-    logger.info(f"[npz mode] loading NPZ ...")
+    logger.info("[npz mode] loading NPZ ...")
 
     import numpy as np
     npz = np.load(args.npz, mmap_mode="r")
@@ -258,5 +260,7 @@ if __name__ == "__main__":
                         help="Optional: path to an existing uint8 NHWC gen NPZ. If set, "
                              "skip distributed sampling and just compute metrics on it. "
                              "Single-process; no torchrun needed.")
+    parser.add_argument("--ckpt", type=str, default=None,
+                        help="Optional stage-2 checkpoint override for config.stage_2.ckpt.")
     args = parser.parse_args()
     main(args)

@@ -23,6 +23,52 @@ def validate_stage2_config(config: Stage2Config) -> None:
     if not config.stage_2.target:
         raise ValueError("Config must provide stage_2.target (DiT model).")
 
+    params = config.stage_2.params
+    latent_layout = params.get("latent_layout", "2d")
+    if latent_layout not in ("1d", "2d"):
+        raise ValueError("stage_2.params.latent_layout must be '1d' or '2d'.")
+
+    latent_size = list(config.misc.latent_size)
+    input_size = params.get("input_size")
+    in_channels = params.get("in_channels")
+    if input_size is None:
+        raise ValueError("stage_2.params.input_size is required.")
+    if in_channels is None:
+        raise ValueError("stage_2.params.in_channels is required.")
+
+    patch_size = params.get("patch_size", [1, 1])
+    if not isinstance(patch_size, (list, tuple)):
+        patch_size = [patch_size, patch_size]
+
+    if latent_layout == "1d":
+        if len(latent_size) != 2:
+            raise ValueError("latent_layout='1d' requires misc.latent_size=[num_tokens, channels].")
+        num_tokens, channels = latent_size
+        if input_size != num_tokens or in_channels != channels:
+            raise ValueError(
+                "For latent_layout='1d', stage_2.params.input_size/in_channels must match "
+                f"misc.latent_size. Got input_size={input_size}, in_channels={in_channels}, "
+                f"latent_size={latent_size}."
+            )
+        if any(p != 1 for p in patch_size):
+            raise ValueError("latent_layout='1d' requires stage_2.params.patch_size to be [1, 1].")
+        if config.conditioning.type == "nwm":
+            raise ValueError("conditioning.type='nwm' is not supported with latent_layout='1d'.")
+    else:
+        if len(latent_size) != 3:
+            raise ValueError("latent_layout='2d' requires misc.latent_size=[channels, height, width].")
+        channels, height, width = latent_size
+        if height != width:
+            raise ValueError("DDT latent_layout='2d' requires square latents.")
+        if input_size != height or input_size != width or in_channels != channels:
+            raise ValueError(
+                "For latent_layout='2d', stage_2.params.input_size/in_channels must match "
+                f"misc.latent_size. Got input_size={input_size}, in_channels={in_channels}, "
+                f"latent_size={latent_size}."
+            )
+        if any(input_size % p != 0 for p in patch_size):
+            raise ValueError("stage_2.params.patch_size must divide stage_2.params.input_size.")
+
     # REPA validation
     repa = config.repa
     if repa.use_repa:

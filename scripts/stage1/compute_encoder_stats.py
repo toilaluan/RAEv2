@@ -34,11 +34,9 @@ Example usage:
 import argparse
 import os
 import sys
-from math import sqrt
 from pathlib import Path
 
 import torch
-import torch.nn as nn
 import torch.distributed as dist
 from omegaconf import OmegaConf
 from torchvision import transforms
@@ -175,7 +173,7 @@ class WelfordAggregator:
         Batch update for efficiency (Chan's parallel algorithm).
 
         Args:
-            batch: Tensor of shape [B, C, H, W]
+            batch: Tensor of shape [B, ...]
         """
         batch = batch.to(self.device, dtype=torch.float64)
         batch_size = batch.shape[0]
@@ -184,8 +182,8 @@ class WelfordAggregator:
             return
 
         # Compute batch statistics
-        batch_mean = batch.mean(dim=0)  # [C, H, W]
-        batch_var = batch.var(dim=0, unbiased=False)  # [C, H, W]
+        batch_mean = batch.mean(dim=0)
+        batch_var = batch.var(dim=0, unbiased=False)
 
         # Combine with running statistics using parallel algorithm
         if self.n == 0:
@@ -282,8 +280,8 @@ class WelfordAggregator:
         Compute final mean and variance.
 
         Returns:
-            mean: Tensor of shape [C, H, W]
-            var: Tensor of shape [C, H, W]
+            mean: Tensor of shape [...]
+            var: Tensor of shape [...]
         """
         if self.n < 2:
             raise ValueError("Need at least 2 samples to compute variance")
@@ -359,12 +357,8 @@ def encode_batch(model, images, device):
     """
     Encode a batch of images to latents.
 
-    This replicates the encoding logic from RAE.encode() but without
-    normalization stats (since we're computing those).
-
-    Supports both:
-    - VisionEncoder path (encoder_name): expects [0,255] range, handles own preprocessing
-    - Legacy path (encoder_cls): expects [0,1] range, uses encoder_mean/std
+    The model config has its normalization stats disabled before
+    instantiation, so model.encode() returns raw latents for stats.
 
     Args:
         model: RAE model
@@ -372,52 +366,12 @@ def encode_batch(model, images, device):
         device: Device to use
 
     Returns:
-        latents: Tensor of shape [B, C, H, W]
+        latents: Tensor of shape [B, ...]
     """
     images = images.to(device)
 
     with torch.no_grad():
-        # Check if encoder is a VisionEncoder (has preprocess method)
-        is_vision_encoder = hasattr(model.encoder, 'preprocess')
-
-        if is_vision_encoder:
-            # VisionEncoder path: expects [0,255] range, handles own preprocessing
-            if images.max() <= 1.0:
-                images = images * 255.0
-
-            # Resize to resolution if needed (encoder preprocess handles resolution->input_size)
-            _, _, h, w = images.shape
-            if h != model.resolution or w != model.resolution:
-                images = nn.functional.interpolate(
-                    images,
-                    size=(model.resolution, model.resolution),
-                    mode='bicubic',
-                    align_corners=False
-                )
-
-            # VisionEncoder.forward() handles preprocess + forward_features
-            z = model.encoder(images)  # [B, N, C]
-        else:
-            # Legacy path: expects [0,1] range, uses encoder_mean/std
-            _, _, h, w = images.shape
-            if h != model.encoder_input_size or w != model.encoder_input_size:
-                images = nn.functional.interpolate(
-                    images,
-                    size=(model.encoder_input_size, model.encoder_input_size),
-                    mode='bicubic',
-                    align_corners=False
-                )
-
-            # Normalize input with encoder mean/std
-            images = (images - model.encoder_mean.to(device)) / model.encoder_std.to(device)
-
-            # Encode
-            z = model.encoder(images)  # [B, N, C]
-
-        # Reshape to 2D (as done in RAE.encode when reshape_to_2d=True)
-        b, n, c = z.shape
-        h = w = int(sqrt(n))
-        z = z.transpose(1, 2).view(b, c, h, w)  # [B, C, H, W]
+        z = model.encode(images)
 
     return z
 
@@ -464,11 +418,13 @@ def main():
         image_size_from_config = rae_config.params.get("encoder_input_size", 224)
 
     if rank == 0:
-        print(f"Instantiating model...")
+        print("Instantiating model...")
 
-    # Temporarily remove normalization_stat_path to avoid loading stats
+    # Temporarily remove normalization stats to avoid loading the stats we are computing.
     original_stat_path = rae_config.params.get("normalization_stat_path", None)
     rae_config.params.normalization_stat_path = None
+    original_finevit_stat_path = rae_config.params.get("finevit_normalization_stat_path", None)
+    rae_config.params.finevit_normalization_stat_path = None
 
     model = instantiate_from_config(rae_config).to(device)
     model.eval()
@@ -481,13 +437,8 @@ def main():
         print(f"Latent dim: {model.latent_dim}")
         print(f"Base patches: {model.base_patches}")
 
-    # Calculate expected output shape
-    h = w = int(sqrt(model.base_patches))
-    expected_shape = (model.latent_dim, h, w)
-
     if rank == 0:
-        print(f"Expected stat shape: {expected_shape}")
-        print(f"\nLoading dataset...")
+        print("\nLoading dataset...")
 
     # Create dataloader
     loader, total_samples = create_dataloader(args, args.image_size, rank, world_size, is_distributed)
@@ -502,18 +453,24 @@ def main():
     if is_distributed:
         dist.barrier()
 
-    # Initialize aggregator
-    aggregator = WelfordAggregator(expected_shape, device=device)
+    # Initialize aggregator lazily from the first encoded batch so both
+    # [B, C, H, W] and [B, L, C] latent layouts are supported.
+    aggregator = None
 
     # Process all batches
     if rank == 0:
-        print(f"\nComputing statistics...")
+        print("\nComputing statistics...")
         pbar = tqdm(total=len(loader), desc="Processing")
     else:
         pbar = None
 
     for images, _ in loader:
         z = encode_batch(model, images, device)
+        if aggregator is None:
+            expected_shape = tuple(z.shape[1:])
+            aggregator = WelfordAggregator(expected_shape, device=device)
+            if rank == 0:
+                print(f"Observed stat shape: {expected_shape}")
         aggregator.update_batch(z)
 
         if pbar is not None:
@@ -521,6 +478,9 @@ def main():
 
     if pbar is not None:
         pbar.close()
+
+    if aggregator is None:
+        raise RuntimeError("No batches were processed; cannot compute statistics.")
 
     # Aggregate statistics across all GPUs
     if is_distributed:
@@ -533,7 +493,7 @@ def main():
 
     # Only rank 0 saves and prints
     if rank == 0:
-        print(f"\nStatistics computed:")
+        print("\nStatistics computed:")
         print(f"  Mean shape: {mean.shape}")
         print(f"  Mean range: [{mean.min():.6f}, {mean.max():.6f}]")
         print(f"  Var shape: {var.shape}")
@@ -558,20 +518,20 @@ def main():
         print(f"\nSaved statistics to {output_path}")
 
         # Compare with existing stats if available
-        if original_stat_path is not None and Path(original_stat_path).exists():
-            print(f"\nComparing with existing stats at {original_stat_path}:")
-            existing = torch.load(original_stat_path, map_location='cpu')
+        compare_stat_path = original_finevit_stat_path or original_stat_path
+        if compare_stat_path is not None and Path(compare_stat_path).exists():
+            print(f"\nComparing with existing stats at {compare_stat_path}:")
+            existing = torch.load(compare_stat_path, map_location='cpu')
 
             if existing.get('mean') is not None:
                 mean_diff = (mean.cpu() - existing['mean']).abs()
                 print(f"  Mean difference: max={mean_diff.max():.6f}, mean={mean_diff.mean():.6f}")
             else:
-                print(f"  Existing mean is None (will use 0)")
+                print("  Existing mean is None (will use 0)")
 
             if existing.get('var') is not None:
                 var_diff = (var.cpu() - existing['var']).abs()
                 print(f"  Var difference: max={var_diff.max():.6f}, mean={var_diff.mean():.6f}")
-
         print("\nDone!")
 
     # Clean up

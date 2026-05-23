@@ -10,6 +10,18 @@ def modulate(x, shift, scale):
     return x * (1 + scale) + shift
 
 
+class TokenEmbed(nn.Module):
+    def __init__(self, num_tokens, in_channels, embed_dim):
+        super().__init__()
+        self.num_patches = num_tokens
+        self.proj = nn.Linear(in_channels, embed_dim)
+
+    def forward(self, x):
+        if x.ndim != 3:
+            raise ValueError(f"TokenEmbed expects [B, L, C], got shape {tuple(x.shape)}")
+        return self.proj(x)
+
+
 class DDTEncoderBlock(nn.Module):
     def __init__(self, hidden_size, num_heads, mlp_ratio=4.0):
         super().__init__()
@@ -77,8 +89,13 @@ class DiTwDDTHead(nn.Module):
         context_dim=768,
         cond_arch=None,
         use_cfg_conds=False,
+        latent_layout="2d",
     ):
         super().__init__()
+        if latent_layout not in ("1d", "2d"):
+            raise ValueError(f"latent_layout must be '1d' or '2d', got {latent_layout!r}")
+        self.latent_layout = latent_layout
+        self.input_size = input_size
         self.in_channels = in_channels
         self.enc_hidden_size, dec_hidden_size = hidden_size
         self.num_enc_blocks, self.num_dec_blocks = depth
@@ -88,8 +105,14 @@ class DiTwDDTHead(nn.Module):
         self.repa_layer_depth = repa_layer_depth
         self.use_cfg_conds = use_cfg_conds
 
-        self.s_embedder = PatchEmbed(input_size, self.s_patch_size, in_channels, self.enc_hidden_size)
-        self.x_embedder = PatchEmbed(input_size, self.x_patch_size, in_channels, dec_hidden_size)
+        if self.latent_layout == "1d":
+            self.latent_pos_embed = nn.Parameter(torch.zeros(1, input_size, in_channels))
+            self.s_embedder = TokenEmbed(input_size, in_channels, self.enc_hidden_size)
+            self.x_embedder = TokenEmbed(input_size, in_channels, dec_hidden_size)
+        else:
+            self.latent_pos_embed = None
+            self.s_embedder = PatchEmbed(input_size, self.s_patch_size, in_channels, self.enc_hidden_size)
+            self.x_embedder = PatchEmbed(input_size, self.x_patch_size, in_channels, dec_hidden_size)
         self.s_projector = nn.Linear(self.enc_hidden_size, dec_hidden_size) if self.enc_hidden_size != dec_hidden_size else nn.Identity()
 
         self.num_cond_tokens = cond_arch.num_t_tokens + cond_arch.num_c_tokens
@@ -112,8 +135,14 @@ class DiTwDDTHead(nn.Module):
         self.blocks = nn.ModuleList(self.blocks)
 
         self.final_layer = DDTFinalLayer(dec_hidden_size, self.x_patch_size, in_channels)
-        self.enc_rope = RoPE(self.enc_hidden_size // enc_num_heads, self.s_embedder.num_patches, self.num_cond_tokens)
-        self.dec_rope = RoPE(dec_hidden_size // dec_num_heads, self.x_embedder.num_patches)
+        self.enc_rope = (
+            RoPE(self.enc_hidden_size // enc_num_heads, self.s_embedder.num_patches, self.num_cond_tokens)
+            if self.latent_layout == "2d" else None
+        )
+        self.dec_rope = (
+            RoPE(dec_hidden_size // dec_num_heads, self.x_embedder.num_patches)
+            if self.latent_layout == "2d" else None
+        )
         if enable_repa:
             self.repa_projector = nn.Linear(self.enc_hidden_size, z_dim)
 
@@ -127,6 +156,8 @@ class DiTwDDTHead(nn.Module):
         w = self.s_embedder.proj.weight.data
         nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
         nn.init.constant_(self.s_embedder.proj.bias, 0)
+        if self.latent_pos_embed is not None:
+            nn.init.normal_(self.latent_pos_embed, std=self.in_channels ** -0.5)
 
         # Condition embedders
         if hasattr(self.ctx_embedder, "mlp"):
@@ -156,14 +187,28 @@ class DiTwDDTHead(nn.Module):
 
     def unpatchify(self, x, p):
         """[N, T, patch_size**2 * C] -> [N, C, H, W]"""
+        if self.latent_layout == "1d":
+            return x
         h, c = int(x.shape[1] ** 0.5), self.in_channels
         x = x.reshape(x.shape[0], h, h, p, p, c).permute(0, 5, 1, 3, 2, 4).reshape(x.shape[0], c, h*p, h*p)
         return x
 
+    def _prepare_latents(self, x):
+        if self.latent_layout == "2d":
+            return x
+        if x.ndim != 3:
+            raise ValueError(f"latent_layout='1d' expects [B, L, C], got shape {tuple(x.shape)}")
+        if x.shape[1] != self.input_size or x.shape[2] != self.in_channels:
+            raise ValueError(
+                f"latent_layout='1d' expects [B, {self.input_size}, {self.in_channels}], "
+                f"got shape {tuple(x.shape)}"
+            )
+        return x + self.latent_pos_embed.to(dtype=x.dtype)
+
     def _build_sequence(self, x, t, condition_kwargs):
         """Returns sequence concatenated with all condition tokens, and the base timestep embedding (no learnable tokens)"""
         seq = []
-        seq.append(self.s_embedder(x))
+        seq.append(self.s_embedder(self._prepare_latents(x)))
         t_emb_base, t_emb = self.t_embedder(t, return_base_embed=True)
         seq.append(t_emb)
         if self.use_cfg_conds:
@@ -192,7 +237,7 @@ class DiTwDDTHead(nn.Module):
                 zt_intermediate = self.repa_projector(seq[:, :self.s_embedder.num_patches, :])
         seq = self.s_projector(F.silu(t_emb_base + seq[:, :self.s_embedder.num_patches, :]))
 
-        x = self.x_embedder(x)
+        x = self.x_embedder(self._prepare_latents(x))
         for i in range(self.num_dec_blocks):
             x = self.blocks[self.num_enc_blocks + i](x, seq, self.dec_rope)
 
@@ -228,7 +273,7 @@ class DiTwDDTHeadIG(DiTwDDTHead):
                 x_base = seq[:, :self.s_embedder.num_patches, :]
         seq = self.s_projector(F.silu(t_emb_base + seq[:, :self.s_embedder.num_patches, :]))
 
-        x = self.x_embedder(x)
+        x = self.x_embedder(self._prepare_latents(x))
         for i in range(self.num_dec_blocks):
             x = self.blocks[self.num_enc_blocks + i](x, seq, self.dec_rope)
 

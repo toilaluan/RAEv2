@@ -4,7 +4,7 @@ stage_1:
     encoder_name: dinov2-vit-b
     resolution: 256
     decoder_config_path: configs/decoder/ViTXL
-    pretrained_decoder_path: checkpoints/dinov2b-k1/stage1/imagenet/dinov2b-k1/decoder.pt
+    pretrained_decoder_path: checkpoints/stage1/imagenet/dinov2b-k1/decoder.pt
     noise_tau: 0.0
     normalization_stat_path: null
     finevit_model_name: toilaluan/aabb
@@ -20,13 +20,13 @@ stage_2:
     - 1
     in_channels: 768
     hidden_size:
-    - 1440
+    - 768
     - 2048
     depth:
-    - 28
+    - 12
     - 2
     num_heads:
-    - 20
+    - 12
     - 16
     mlp_ratio: 4.0
     base_model_depth: 8
@@ -49,19 +49,19 @@ guidance:
 dataset:
   target: imagenet
   type: hf
-  data_dir: ./data/imagenet-256
+  data_dir: ./data/imagenet_256
   split: train
   condition_type: label
   shared_tmpdir: ~/tmp
 training:
   epochs: 80
-  global_batch_size: 1024
+  global_batch_size: 128
   grad_accum_steps: 1
-  ema_decay: 0.9995
+  ema_decay: 0.995
   num_workers: 4
   log_interval: 100
   checkpoint_interval: 1
-  sample_every: 5000
+  sample_every: 1000
   clip_grad: 1.0
   global_seed: 42
   optimizer:
@@ -74,20 +74,20 @@ training:
     weight_decay: 0.0
   scheduler:
     type: linear
-    warmup_epochs: 25
+    warmup_epochs: 1
     decay_end_epoch: 50
     base_lr: 0.0002
     final_lr: 2.0e-05
     warmup_from_zero: false
   image_size: 256
 eval:
-  eval_interval: 5000
+  eval_interval: 1000
   eval_model: false
   eval_dir: results/stage2/eval
   datasets:
     imagenet:
       type: hf
-      data_dir: ./data/imagenet-256
+      data_dir: ./data/imagenet_256
       split: val
       condition_type: label
       metrics:

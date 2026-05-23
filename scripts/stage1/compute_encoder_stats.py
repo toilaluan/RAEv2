@@ -85,7 +85,7 @@ def parse_args():
         "--hf-split",
         type=str,
         default="train",
-        choices=["train", "val"],
+        choices=["train", "validation", "val"],
         help="Dataset split to use for HF dataset.",
     )
     parser.add_argument(

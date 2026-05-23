@@ -603,6 +603,21 @@ wheels = [
 ]
 
 [[package]]
+name = "dpg-evaluator"
+version = "0.1.0"
+source = { git = "https://github.com/nanovisionx/nanogen-evals.git?subdirectory=dpgbench&branch=main#19dfb4c2705333eb8b97e454fb354d47d1fe135b" }
+dependencies = [
+    { name = "numpy", marker = "sys_platform == 'linux'" },
+    { name = "pandas", marker = "sys_platform == 'linux'" },
+    { name = "pillow", marker = "sys_platform == 'linux'" },
+    { name = "pyyaml", marker = "sys_platform == 'linux'" },
+    { name = "torch", marker = "sys_platform == 'linux'" },
+    { name = "torchvision", marker = "sys_platform == 'linux'" },
+    { name = "tqdm", marker = "sys_platform == 'linux'" },
+    { name = "transformers", marker = "sys_platform == 'linux'" },
+]
+
+[[package]]
 name = "einops"
 version = "0.8.1"
 source = { registry = "https://pypi.org/simple" }
@@ -639,6 +654,23 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/20/b5/23b216d9d985a956623b6bd12d4086b60f0059b27799f23016af04a74ea1/fastjsonschema-2.21.2.tar.gz", hash = "sha256:b1eb43748041c880796cd077f1a07c3d94e93ae84bba5ed36800a33554ae05de", size = 374130, upload-time = "2025-08-14T18:49:36.666Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/cb/a8/20d0723294217e47de6d9e2e40fd4a9d2f7c4b6ef974babd482a59743694/fastjsonschema-2.21.2-py3-none-any.whl", hash = "sha256:1c797122d0a86c5cace2e54bf4e819c36223b552017172f32c5c024a6b77e463", size = 24024, upload-time = "2025-08-14T18:49:34.776Z" },
+]
+
+[[package]]
+name = "fd-evaluator"
+version = "0.1.0"
+source = { git = "https://github.com/nanovisionx/nanogen-evals.git?subdirectory=fd_evaluator&branch=main#19dfb4c2705333eb8b97e454fb354d47d1fe135b" }
+dependencies = [
+    { name = "huggingface-hub", marker = "sys_platform == 'linux'" },
+    { name = "numpy", marker = "sys_platform == 'linux'" },
+    { name = "pillow", marker = "sys_platform == 'linux'" },
+    { name = "pyyaml", marker = "sys_platform == 'linux'" },
+    { name = "scipy", marker = "sys_platform == 'linux'" },
+    { name = "timm", marker = "sys_platform == 'linux'" },
+    { name = "torch", marker = "sys_platform == 'linux'" },
+    { name = "torch-fidelity", marker = "sys_platform == 'linux'" },
+    { name = "torchvision", marker = "sys_platform == 'linux'" },
+    { name = "tqdm", marker = "sys_platform == 'linux'" },
 ]
 
 [[package]]
@@ -770,6 +802,19 @@ wheels = [
 ]
 
 [[package]]
+name = "geneval-evaluator"
+version = "0.1.0"
+source = { git = "https://github.com/nanovisionx/nanogen-evals.git?subdirectory=geneval&branch=main#19dfb4c2705333eb8b97e454fb354d47d1fe135b" }
+dependencies = [
+    { name = "numpy", marker = "sys_platform == 'linux'" },
+    { name = "pandas", marker = "sys_platform == 'linux'" },
+    { name = "pillow", marker = "sys_platform == 'linux'" },
+    { name = "torch", marker = "sys_platform == 'linux'" },
+    { name = "tqdm", marker = "sys_platform == 'linux'" },
+    { name = "transformers", marker = "sys_platform == 'linux'" },
+]
+
+[[package]]
 name = "gitdb"
 version = "4.0.12"
 source = { registry = "https://pypi.org/simple" }
@@ -791,6 +836,14 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/33/f6/354ae6491228b5eb40e10d89c4d13c651fe1cf7556e35ebdded50cff57ce/gitpython-3.1.50.tar.gz", hash = "sha256:80da2d12504d52e1f998772dc5baf6e553f8d2fcfe1fcc226c9d9a2ee3372dcc", size = 219798, upload-time = "2026-05-06T04:01:26.571Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/20/7a/1c6e3562dfd8950adbb11ffbc65d21e7c89d01a6e4f137fa981056de25c5/gitpython-3.1.50-py3-none-any.whl", hash = "sha256:d352abe2908d07355014abdd21ddf798c2a961469239afec4962e9da884858f9", size = 212507, upload-time = "2026-05-06T04:01:23.799Z" },
+]
+
+[[package]]
+name = "gram-newton-schulz"
+version = "0.0.1"
+source = { git = "https://github.com/nanovisionx/gmuon.git?branch=main#4863cc2446f09a54d937c579d4e775c125f5ab2e" }
+dependencies = [
+    { name = "torch", marker = "sys_platform == 'linux'" },
 ]
 
 [[package]]
@@ -1746,6 +1799,15 @@ wheels = [
 ]
 
 [[package]]
+name = "nvidia-ml-py"
+version = "13.595.45"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ce/49/c29f6e30d8662d2e94fef17739ea7309cc76aba269922ae999e4cc07f268/nvidia_ml_py-13.595.45.tar.gz", hash = "sha256:c9f34897fe0441ff35bc8f35baf80f830a20b0f4e6ce71e0a325bc0e66acf079", size = 50780, upload-time = "2026-03-19T16:59:44.956Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8a/24/fc256107d23597fa33d319505ce77160fa1a2349c096d01901ffc7cb7fc4/nvidia_ml_py-13.595.45-py3-none-any.whl", hash = "sha256:b65a7977f503d56154b14d683710125ef93594adb63fbf7e559336e3318f1376", size = 51776, upload-time = "2026-03-19T16:59:43.603Z" },
+]
+
+[[package]]
 name = "nvidia-nccl-cu12"
 version = "2.27.5"
 source = { registry = "https://pypi.org/simple" }
@@ -1779,6 +1841,19 @@ source = { registry = "https://pypi.org/simple" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/10/c0/1b303feea90d296f6176f32a2a70b5ef230f9bdeb3a72bddb0dc922dc137/nvidia_nvtx_cu12-12.8.90-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:d7ad891da111ebafbf7e015d34879f7112832fc239ff0d7d776b6cb685274615", size = 91161, upload-time = "2025-03-07T01:42:23.922Z" },
     { url = "https://files.pythonhosted.org/packages/a2/eb/86626c1bbc2edb86323022371c39aa48df6fd8b0a1647bc274577f72e90b/nvidia_nvtx_cu12-12.8.90-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:5b17e2001cc0d751a5bc2c6ec6d26ad95913324a4adb86788c944f8ce9ba441f", size = 89954, upload-time = "2025-03-07T01:42:44.131Z" },
+]
+
+[[package]]
+name = "nvitop"
+version = "1.7.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "nvidia-ml-py", marker = "sys_platform == 'linux'" },
+    { name = "psutil", marker = "sys_platform == 'linux'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/31/cf/865f4aa73c2433fd84af1305addcbd4ea70b80bc5fd41ca71b069b63e21b/nvitop-1.7.0.tar.gz", hash = "sha256:ce8831855f3af0f70f49c009a1f52621a3bddece8752ebb2332dc332bf8a8384", size = 220373, upload-time = "2026-05-16T07:51:06.452Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ae/a3/1e34daf9b018e234f9d1ac742dd96446afbdba64ea9e916150550b4bdd8c/nvitop-1.7.0-py3-none-any.whl", hash = "sha256:a7820b90172d20eea8b45595d680e07a199359cb6f22407b6460a7b518d28842", size = 205964, upload-time = "2026-05-16T07:51:03.921Z" },
 ]
 
 [[package]]
@@ -2341,10 +2416,15 @@ dependencies = [
     { name = "datasets", marker = "sys_platform == 'linux'" },
     { name = "dictdot", marker = "sys_platform == 'linux'" },
     { name = "diffusers", marker = "sys_platform == 'linux'" },
+    { name = "dpg-evaluator", marker = "sys_platform == 'linux'" },
     { name = "einops", marker = "sys_platform == 'linux'" },
+    { name = "fd-evaluator", marker = "sys_platform == 'linux'" },
+    { name = "geneval-evaluator", marker = "sys_platform == 'linux'" },
+    { name = "gram-newton-schulz", marker = "sys_platform == 'linux'" },
     { name = "hf-transfer", marker = "sys_platform == 'linux'" },
     { name = "lpips", marker = "sys_platform == 'linux'" },
     { name = "numpy", marker = "sys_platform == 'linux'" },
+    { name = "nvitop", marker = "sys_platform == 'linux'" },
     { name = "omegaconf", marker = "sys_platform == 'linux'" },
     { name = "opencv-python", marker = "sys_platform == 'linux'" },
     { name = "pandas", marker = "sys_platform == 'linux'" },
@@ -2354,6 +2434,7 @@ dependencies = [
     { name = "safetensors", marker = "sys_platform == 'linux'" },
     { name = "scipy", marker = "sys_platform == 'linux'" },
     { name = "sentencepiece", marker = "sys_platform == 'linux'" },
+    { name = "t2v-metrics", marker = "sys_platform == 'linux'" },
     { name = "tabulate", marker = "sys_platform == 'linux'" },
     { name = "termcolor", marker = "sys_platform == 'linux'" },
     { name = "timm", marker = "sys_platform == 'linux'" },
@@ -2384,10 +2465,15 @@ requires-dist = [
     { name = "datasets", specifier = "==4.4.2" },
     { name = "dictdot", specifier = "==1.5.1" },
     { name = "diffusers", specifier = "==0.36.0" },
+    { name = "dpg-evaluator", git = "https://github.com/nanovisionx/nanogen-evals.git?subdirectory=dpgbench&branch=main" },
     { name = "einops", specifier = "==0.8.1" },
+    { name = "fd-evaluator", git = "https://github.com/nanovisionx/nanogen-evals.git?subdirectory=fd_evaluator&branch=main" },
+    { name = "geneval-evaluator", git = "https://github.com/nanovisionx/nanogen-evals.git?subdirectory=geneval&branch=main" },
+    { name = "gram-newton-schulz", git = "https://github.com/nanovisionx/gmuon.git?branch=main" },
     { name = "hf-transfer", specifier = ">=0.1.9" },
     { name = "lpips", specifier = "==0.1.4" },
     { name = "numpy", specifier = "==2.2.6" },
+    { name = "nvitop", specifier = ">=1.7.0" },
     { name = "omegaconf", specifier = "==2.3.0" },
     { name = "opencv-python", specifier = "==4.13.0.92" },
     { name = "pandas", specifier = "==2.3.3" },
@@ -2397,6 +2483,7 @@ requires-dist = [
     { name = "safetensors", specifier = "==0.7.0" },
     { name = "scipy", specifier = "==1.15.3" },
     { name = "sentencepiece", specifier = "==0.2.1" },
+    { name = "t2v-metrics", git = "https://github.com/nanovisionx/nanogen-evals.git?subdirectory=t2v_metrics&branch=main" },
     { name = "tabulate", specifier = "==0.10.0" },
     { name = "termcolor" },
     { name = "timm", specifier = ">=1.0.16" },
@@ -2796,6 +2883,22 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/83/d3/803453b36afefb7c2bb238361cd4ae6125a569b4db67cd9e79846ba2d68c/sympy-1.14.0.tar.gz", hash = "sha256:d3d3fe8df1e5a0b42f0e7bdf50541697dbe7d23746e894990c030e2b05e72517", size = 7793921, upload-time = "2025-04-27T18:05:01.611Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a2/09/77d55d46fd61b4a135c444fc97158ef34a095e5681d0a6c10b75bf356191/sympy-1.14.0-py3-none-any.whl", hash = "sha256:e091cc3e99d2141a0ba2847328f5479b05d94a6635cb96148ccb3f34671bd8f5", size = 6299353, upload-time = "2025-04-27T18:04:59.103Z" },
+]
+
+[[package]]
+name = "t2v-metrics"
+version = "0.1.0"
+source = { git = "https://github.com/nanovisionx/nanogen-evals.git?subdirectory=t2v_metrics&branch=main#19dfb4c2705333eb8b97e454fb354d47d1fe135b" }
+dependencies = [
+    { name = "numpy", marker = "sys_platform == 'linux'" },
+    { name = "opencv-python", marker = "sys_platform == 'linux'" },
+    { name = "packaging", marker = "sys_platform == 'linux'" },
+    { name = "pillow", marker = "sys_platform == 'linux'" },
+    { name = "requests", marker = "sys_platform == 'linux'" },
+    { name = "torch", marker = "sys_platform == 'linux'" },
+    { name = "torchvision", marker = "sys_platform == 'linux'" },
+    { name = "tqdm", marker = "sys_platform == 'linux'" },
+    { name = "transformers", marker = "sys_platform == 'linux'" },
 ]
 
 [[package]]

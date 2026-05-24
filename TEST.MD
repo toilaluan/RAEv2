@@ -9,7 +9,7 @@ hf download benjamin-paine/imagenet-1k-256x256 --local-dir ./data/imagenet_256 -
 PYTHONPATH=src uv run torchrun --nproc_per_node=1 scripts/stage1/compute_encoder_stats.py   \
 --config configs/stage2/training/imagenet-finevit-dinov2b-k1.yaml   \
 --use-hf-dataset   --hf-data-dir data/imagenet_256   --batch-size 256   \
---output-path pretrained_models/stage1/imagenet/finevit-dinov2b-k1/stats.pt --hf-split validation
+--output-path pretrained_models/stage1/imagenet/finevit-dinov2b-k1/stats.pt --hf-split val
 ```
 
 ```

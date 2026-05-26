@@ -11,6 +11,22 @@ import torch
 from configs.stage2 import GuidanceConfig
 
 
+def _is_sequence_model(model):
+    return getattr(model, "latent_format", None) == "sequence"
+
+
+def _split_model_output(model, model_out):
+    if _is_sequence_model(model):
+        return model_out, None
+    return model_out[:, :model.in_channels], model_out[:, model.in_channels:]
+
+
+def _merge_model_output(model, eps, rest):
+    if _is_sequence_model(model) or rest is None:
+        return eps
+    return torch.cat([eps, rest], dim=1)
+
+
 def forward_with_cfg(model, x, t, cfg_scale, cfg_interval=(0, 1), **condition_kwargs):
     """Forward pass with classifier-free guidance."""
     half = x[: len(x) // 2]
@@ -19,7 +35,7 @@ def forward_with_cfg(model, x, t, cfg_scale, cfg_interval=(0, 1), **condition_kw
     if isinstance(model_out, tuple):
         # IG models return (full, base) tuple
         model_out = model_out[0]
-    eps, rest = model_out[:, :model.in_channels], model_out[:, model.in_channels:]
+    eps, rest = _split_model_output(model, model_out)
     cond_eps, uncond_eps = torch.split(eps, len(eps) // 2, dim=0)
     guid_t_min, guid_t_max = cfg_interval
     assert guid_t_min < guid_t_max, "cfg_interval should be (min, max) with min < max"
@@ -29,7 +45,7 @@ def forward_with_cfg(model, x, t, cfg_scale, cfg_interval=(0, 1), **condition_kw
         uncond_eps + cfg_scale * (cond_eps - uncond_eps), cond_eps
     )
     eps = torch.cat([half_eps, half_eps], dim=0)
-    return torch.cat([eps, rest], dim=1)
+    return _merge_model_output(model, eps, rest)
 
 
 def slice_context_kwargs(condition_kwargs, batch_size):
@@ -46,8 +62,8 @@ def forward_with_internalguidance(model, x, t, ig_scale, ig_interval=(0, 1), **c
     t_half = t[: len(t) // 2]
     half_context_kwargs = slice_context_kwargs(condition_kwargs, half.shape[0])
     full_out, base_out = model(half, t_half, **half_context_kwargs)
-    eps_full = full_out[:, :model.in_channels]
-    eps_base = base_out[:, :model.in_channels]
+    eps_full, _ = _split_model_output(model, full_out)
+    eps_base, _ = _split_model_output(model, base_out)
     ig_t_min, ig_t_max = ig_interval
     assert ig_t_min < ig_t_max, "ig_interval should be (min, max) with min < max"
     ig_out = torch.where(
@@ -71,8 +87,8 @@ def forward_with_ig_and_cfg(
 
     full_out, base_out = model(x, t, **condition_kwargs)
 
-    eps_full = full_out[:, :model.in_channels]
-    eps_base = base_out[:, :model.in_channels]
+    eps_full, _ = _split_model_output(model, full_out)
+    eps_base, _ = _split_model_output(model, base_out)
 
     full_c, full_u = eps_full.chunk(2, dim=0)
     base_c, base_u = eps_base.chunk(2, dim=0)

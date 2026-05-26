@@ -34,11 +34,9 @@ Example usage:
 import argparse
 import os
 import sys
-from math import sqrt
 from pathlib import Path
 
 import torch
-import torch.nn as nn
 import torch.distributed as dist
 from omegaconf import OmegaConf
 from torchvision import transforms
@@ -359,12 +357,8 @@ def encode_batch(model, images, device):
     """
     Encode a batch of images to latents.
 
-    This replicates the encoding logic from RAE.encode() but without
-    normalization stats (since we're computing those).
-
-    Supports both:
-    - VisionEncoder path (encoder_name): expects [0,255] range, handles own preprocessing
-    - Legacy path (encoder_cls): expects [0,1] range, uses encoder_mean/std
+    This calls model.encode() directly after removing normalization stats from
+    the config, so both image-like and sequence-like latent shapes are supported.
 
     Args:
         model: RAE model
@@ -372,52 +366,12 @@ def encode_batch(model, images, device):
         device: Device to use
 
     Returns:
-        latents: Tensor of shape [B, C, H, W]
+        latents: Tensor of shape [B, ...]
     """
     images = images.to(device)
 
     with torch.no_grad():
-        # Check if encoder is a VisionEncoder (has preprocess method)
-        is_vision_encoder = hasattr(model.encoder, 'preprocess')
-
-        if is_vision_encoder:
-            # VisionEncoder path: expects [0,255] range, handles own preprocessing
-            if images.max() <= 1.0:
-                images = images * 255.0
-
-            # Resize to resolution if needed (encoder preprocess handles resolution->input_size)
-            _, _, h, w = images.shape
-            if h != model.resolution or w != model.resolution:
-                images = nn.functional.interpolate(
-                    images,
-                    size=(model.resolution, model.resolution),
-                    mode='bicubic',
-                    align_corners=False
-                )
-
-            # VisionEncoder.forward() handles preprocess + forward_features
-            z = model.encoder(images)  # [B, N, C]
-        else:
-            # Legacy path: expects [0,1] range, uses encoder_mean/std
-            _, _, h, w = images.shape
-            if h != model.encoder_input_size or w != model.encoder_input_size:
-                images = nn.functional.interpolate(
-                    images,
-                    size=(model.encoder_input_size, model.encoder_input_size),
-                    mode='bicubic',
-                    align_corners=False
-                )
-
-            # Normalize input with encoder mean/std
-            images = (images - model.encoder_mean.to(device)) / model.encoder_std.to(device)
-
-            # Encode
-            z = model.encoder(images)  # [B, N, C]
-
-        # Reshape to 2D (as done in RAE.encode when reshape_to_2d=True)
-        b, n, c = z.shape
-        h = w = int(sqrt(n))
-        z = z.transpose(1, 2).view(b, c, h, w)  # [B, C, H, W]
+        z = model.encode(images)
 
     return z
 
@@ -481,12 +435,7 @@ def main():
         print(f"Latent dim: {model.latent_dim}")
         print(f"Base patches: {model.base_patches}")
 
-    # Calculate expected output shape
-    h = w = int(sqrt(model.base_patches))
-    expected_shape = (model.latent_dim, h, w)
-
     if rank == 0:
-        print(f"Expected stat shape: {expected_shape}")
         print(f"\nLoading dataset...")
 
     # Create dataloader
@@ -502,8 +451,8 @@ def main():
     if is_distributed:
         dist.barrier()
 
-    # Initialize aggregator
-    aggregator = WelfordAggregator(expected_shape, device=device)
+    # Initialize aggregator after the first batch so arbitrary latent shapes work.
+    aggregator = None
 
     # Process all batches
     if rank == 0:
@@ -514,6 +463,11 @@ def main():
 
     for images, _ in loader:
         z = encode_batch(model, images, device)
+        if aggregator is None:
+            expected_shape = tuple(z.shape[1:])
+            aggregator = WelfordAggregator(expected_shape, device=device)
+            if rank == 0:
+                print(f"Stat shape inferred from model.encode(): {expected_shape}")
         aggregator.update_batch(z)
 
         if pbar is not None:
@@ -526,9 +480,13 @@ def main():
     if is_distributed:
         if rank == 0:
             print(f"\nAggregating statistics across {world_size} GPUs...")
+        if aggregator is None:
+            raise RuntimeError("No batches were processed; cannot compute statistics.")
         aggregator.all_reduce()
 
     # Finalize statistics (all ranks compute this for verification)
+    if aggregator is None:
+        raise RuntimeError("No batches were processed; cannot compute statistics.")
     mean, var = aggregator.finalize()
 
     # Only rank 0 saves and prints
@@ -563,14 +521,20 @@ def main():
             existing = torch.load(original_stat_path, map_location='cpu')
 
             if existing.get('mean') is not None:
-                mean_diff = (mean.cpu() - existing['mean']).abs()
-                print(f"  Mean difference: max={mean_diff.max():.6f}, mean={mean_diff.mean():.6f}")
+                if tuple(existing['mean'].shape) == tuple(mean.shape):
+                    mean_diff = (mean.cpu() - existing['mean']).abs()
+                    print(f"  Mean difference: max={mean_diff.max():.6f}, mean={mean_diff.mean():.6f}")
+                else:
+                    print(f"  Existing mean shape {tuple(existing['mean'].shape)} differs from new shape {tuple(mean.shape)}")
             else:
                 print(f"  Existing mean is None (will use 0)")
 
             if existing.get('var') is not None:
-                var_diff = (var.cpu() - existing['var']).abs()
-                print(f"  Var difference: max={var_diff.max():.6f}, mean={var_diff.mean():.6f}")
+                if tuple(existing['var'].shape) == tuple(var.shape):
+                    var_diff = (var.cpu() - existing['var']).abs()
+                    print(f"  Var difference: max={var_diff.max():.6f}, mean={var_diff.mean():.6f}")
+                else:
+                    print(f"  Existing var shape {tuple(existing['var'].shape)} differs from new shape {tuple(var.shape)}")
 
         print("\nDone!")
 

@@ -242,3 +242,231 @@ class DiTwDDTHeadIG(DiTwDDTHead):
         if return_intermediate:
             return (x, x_base), zt_intermediate
         return x, x_base
+
+
+def _resolve_sequence_length(input_size, num_prefix_tokens, patch_grid_size):
+    if input_size is None:
+        return num_prefix_tokens + patch_grid_size[0] * patch_grid_size[1]
+    if isinstance(input_size, (list, tuple)):
+        if len(input_size) == 0:
+            raise ValueError("input_size cannot be empty")
+        return int(input_size[0])
+    return int(input_size)
+
+
+class DiTwDDTHeadSequence(nn.Module):
+    """Sequence-native DDT head for [B, num_tokens, channels] latents."""
+
+    latent_format = "sequence"
+
+    def __init__(
+        self,
+        input_size=None,
+        in_channels=768,
+        patch_size=None,
+        hidden_size=[1152, 2048],
+        depth=[28, 2],
+        num_heads=[16, 16],
+        mlp_ratio=4.0,
+        enable_repa=False,
+        repa_layer_depth=8,
+        z_dim=None,
+        num_classes=1000,
+        condition_type="label",
+        context_dim=768,
+        cond_arch=None,
+        use_cfg_conds=False,
+        num_prefix_tokens=9,
+        patch_grid_size=[8, 8],
+        use_learned_pos_embed=True,
+    ):
+        super().__init__()
+        if cond_arch is None:
+            raise ValueError("DiTwDDTHeadSequence requires cond_arch to be provided by Stage2Config.prepare_model_params().")
+
+        self.in_channels = in_channels
+        self.enc_hidden_size, dec_hidden_size = hidden_size
+        self.num_enc_blocks, self.num_dec_blocks = depth
+        enc_num_heads, dec_num_heads = num_heads
+        self.repa_layer_depth = repa_layer_depth
+        self.use_cfg_conds = use_cfg_conds
+        self.num_prefix_tokens = int(num_prefix_tokens)
+        self.patch_grid_size = tuple(patch_grid_size)
+        self.num_patch_tokens = self.patch_grid_size[0] * self.patch_grid_size[1]
+        self.num_latent_tokens = _resolve_sequence_length(input_size, self.num_prefix_tokens, self.patch_grid_size)
+        if self.num_latent_tokens != self.num_prefix_tokens + self.num_patch_tokens:
+            raise ValueError(
+                f"input_size={self.num_latent_tokens} does not match "
+                f"{self.num_prefix_tokens} prefix + {self.patch_grid_size[0]}x{self.patch_grid_size[1]} patch tokens"
+            )
+
+        self.s_embedder = nn.Linear(in_channels, self.enc_hidden_size)
+        self.x_embedder = nn.Linear(in_channels, dec_hidden_size)
+        self.s_projector = nn.Linear(self.enc_hidden_size, dec_hidden_size) if self.enc_hidden_size != dec_hidden_size else nn.Identity()
+
+        if use_learned_pos_embed:
+            self.s_pos_embed = nn.Parameter(torch.zeros(1, self.num_latent_tokens, self.enc_hidden_size))
+            self.x_pos_embed = nn.Parameter(torch.zeros(1, self.num_latent_tokens, dec_hidden_size))
+        else:
+            self.register_parameter("s_pos_embed", None)
+            self.register_parameter("x_pos_embed", None)
+
+        self.num_cond_tokens = cond_arch.num_t_tokens + cond_arch.num_c_tokens
+        self.t_embedder = GaussianFourierEmbedding(self.enc_hidden_size, cond_arch.num_t_tokens)
+        self.ctx_embedder = ConditionEmbedder(
+            self.enc_hidden_size, num_classes, context_dim, condition_type, cond_arch.num_c_tokens,
+            latent_in_channels=in_channels,
+            latent_patch_size=1,
+            n_action_tokens=getattr(cond_arch, "n_action_tokens", 4),
+        )
+        if self.use_cfg_conds:
+            self.num_cond_tokens += cond_arch.num_cfg_omega_tokens
+            self.cfg_w_embedder = GaussianFourierEmbedding(self.enc_hidden_size, cond_arch.num_cfg_omega_tokens)
+
+        self.blocks = []
+        for _ in range(self.num_enc_blocks):
+            self.blocks.append(DDTEncoderBlock(self.enc_hidden_size, enc_num_heads, mlp_ratio))
+        for _ in range(self.num_dec_blocks):
+            self.blocks.append(DDTDecoderBlock(dec_hidden_size, dec_num_heads, mlp_ratio))
+        self.blocks = nn.ModuleList(self.blocks)
+
+        self.final_layer = DDTFinalLayer(dec_hidden_size, 1, in_channels)
+        self.enc_rope = RoPE(
+            self.enc_hidden_size // enc_num_heads,
+            self.num_latent_tokens,
+            self.num_cond_tokens,
+            num_prefix_tokens=self.num_prefix_tokens,
+            patch_grid_size=self.patch_grid_size,
+        )
+        self.dec_rope = RoPE(
+            dec_hidden_size // dec_num_heads,
+            self.num_latent_tokens,
+            num_prefix_tokens=self.num_prefix_tokens,
+            patch_grid_size=self.patch_grid_size,
+        )
+        if enable_repa:
+            self.repa_projector = nn.Linear(self.enc_hidden_size, z_dim)
+
+        self.initialize_weights()
+
+    def initialize_weights(self):
+        nn.init.xavier_uniform_(self.x_embedder.weight)
+        nn.init.constant_(self.x_embedder.bias, 0)
+        nn.init.xavier_uniform_(self.s_embedder.weight)
+        nn.init.constant_(self.s_embedder.bias, 0)
+
+        if self.s_pos_embed is not None:
+            nn.init.normal_(self.s_pos_embed, std=0.02)
+            nn.init.normal_(self.x_pos_embed, std=0.02)
+
+        if hasattr(self.ctx_embedder, "mlp"):
+            nn.init.normal_(self.ctx_embedder.mlp[0].weight, std=0.02)
+            nn.init.normal_(self.ctx_embedder.mlp[2].weight, std=0.02)
+        if hasattr(self.ctx_embedder, "embedding_table"):
+            nn.init.normal_(self.ctx_embedder.embedding_table.weight, std=0.02)
+
+        for block in self.blocks:
+            if hasattr(block, "adaln_modulation"):
+                nn.init.constant_(block.adaln_modulation[-1].weight, 0)
+                nn.init.constant_(block.adaln_modulation[-1].bias, 0)
+
+        t_embedders = ["t_embedder", "cfg_w_embedder"]
+        for t_embedder in t_embedders:
+            if hasattr(self, t_embedder):
+                nn.init.normal_(getattr(self, t_embedder).mlp[0].weight, std=0.02)
+                nn.init.normal_(getattr(self, t_embedder).mlp[2].weight, std=0.02)
+
+        nn.init.constant_(self.final_layer.adaln_modulation[-1].weight, 0)
+        nn.init.constant_(self.final_layer.adaln_modulation[-1].bias, 0)
+        nn.init.constant_(self.final_layer.linear.weight, 0)
+        nn.init.constant_(self.final_layer.linear.bias, 0)
+
+    def _add_pos_embed(self, x, pos_embed):
+        return x if pos_embed is None else x + pos_embed.to(device=x.device, dtype=x.dtype)
+
+    def _validate_input(self, x):
+        if x.ndim != 3:
+            raise ValueError(f"{self.__class__.__name__} expects [B, N, C] latents, got {tuple(x.shape)}")
+        if x.shape[1] != self.num_latent_tokens or x.shape[2] != self.in_channels:
+            raise ValueError(
+                f"{self.__class__.__name__} expected [B, {self.num_latent_tokens}, {self.in_channels}], "
+                f"got {tuple(x.shape)}"
+            )
+
+    def _build_sequence(self, x, t, condition_kwargs):
+        self._validate_input(x)
+        seq = []
+        seq.append(self._add_pos_embed(self.s_embedder(x), self.s_pos_embed))
+        t_emb_base, t_emb = self.t_embedder(t, return_base_embed=True)
+        seq.append(t_emb)
+        if self.use_cfg_conds:
+            seq.append(self.cfg_w_embedder(condition_kwargs["omega"]))
+        seq.append(self.ctx_embedder(condition_kwargs["context"]))
+        seq = torch.cat(seq, dim=1)
+        return seq, t_emb_base
+
+    def _build_attn_mask(self, seq, condition_kwargs):
+        attn_mask = torch.ones((seq.shape[0], seq.shape[1]), device=seq.device)
+        cond_mask = condition_kwargs.get("attn_mask")
+        if cond_mask is not None:
+            attn_mask[:, -cond_mask.shape[1]:] = cond_mask
+        attn_mask = (1.0 - attn_mask[:, None, None, :]) * torch.finfo(seq.dtype).min
+        return attn_mask
+
+    def forward(self, x, t, return_intermediate=False, **condition_kwargs):
+        zt_intermediate = None
+        seq, t_emb_base = self._build_sequence(x, t, condition_kwargs)
+        attn_mask = self._build_attn_mask(seq, condition_kwargs)
+        for i in range(self.num_enc_blocks):
+            seq = self.blocks[i](seq, self.enc_rope, attn_mask)
+            if return_intermediate and (i + 1) == self.repa_layer_depth:
+                zt_intermediate = self.repa_projector(seq[:, :self.num_latent_tokens, :])
+        seq = self.s_projector(F.silu(t_emb_base + seq[:, :self.num_latent_tokens, :]))
+
+        x = self._add_pos_embed(self.x_embedder(x), self.x_pos_embed)
+        for i in range(self.num_dec_blocks):
+            x = self.blocks[self.num_enc_blocks + i](x, seq, self.dec_rope)
+
+        x = self.final_layer(x, seq)
+
+        if return_intermediate:
+            return x, zt_intermediate
+        return x
+
+
+class DiTwDDTHeadIGSequence(DiTwDDTHeadSequence):
+    def __init__(self, base_model_depth=8, **kwargs):
+        super().__init__(**kwargs)
+        self.base_model_depth = base_model_depth
+
+        self.base_final_layer = DDTFinalLayer(self.enc_hidden_size, 1, self.in_channels)
+        nn.init.constant_(self.base_final_layer.adaln_modulation[-1].weight, 0)
+        nn.init.constant_(self.base_final_layer.adaln_modulation[-1].bias, 0)
+        nn.init.constant_(self.base_final_layer.linear.weight, 0)
+        nn.init.constant_(self.base_final_layer.linear.bias, 0)
+
+    def forward(self, x, t, return_intermediate=False, **condition_kwargs):
+        zt_intermediate = None
+        x_base = None
+        seq, t_emb_base = self._build_sequence(x, t, condition_kwargs)
+        attn_mask = self._build_attn_mask(seq, condition_kwargs)
+        for i in range(self.num_enc_blocks):
+            seq = self.blocks[i](seq, self.enc_rope, attn_mask)
+            if return_intermediate and (i + 1) == self.repa_layer_depth:
+                zt_intermediate = self.repa_projector(seq[:, :self.num_latent_tokens, :])
+            if (i + 1) == self.base_model_depth:
+                x_base = seq[:, :self.num_latent_tokens, :]
+        seq = self.s_projector(F.silu(t_emb_base + seq[:, :self.num_latent_tokens, :]))
+
+        x = self._add_pos_embed(self.x_embedder(x), self.x_pos_embed)
+        for i in range(self.num_dec_blocks):
+            x = self.blocks[self.num_enc_blocks + i](x, seq, self.dec_rope)
+
+        x = self.final_layer(x, seq)
+
+        x_base = F.silu(t_emb_base + x_base)
+        x_base = self.base_final_layer(x_base, x_base)
+
+        if return_intermediate:
+            return (x, x_base), zt_intermediate
+        return x, x_base

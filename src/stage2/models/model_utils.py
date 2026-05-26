@@ -12,16 +12,38 @@ def rotate_half(x):
 
 
 class RoPE(nn.Module):
-    def __init__(self, dim, vis_len, cond_len=0, theta=10000.,):
+    def __init__(self, dim, vis_len, cond_len=0, theta=10000., num_prefix_tokens=0, patch_grid_size=None):
         super().__init__()
-        # 2D RoPE for vision
-        d, T = dim // 2, int(vis_len ** 0.5)
+        d = dim // 2
         vis_freqs = 1.0 / (theta ** (torch.arange(0, d, 2).float() / d))  # [D//4]
-        vis_base_angles = torch.outer(torch.arange(T).float(), vis_freqs)  # [T, D//4]
-        vis_angles = torch.cat([
-            vis_base_angles[:, None].expand(-1, T, -1),
-            vis_base_angles[None, :].expand(T, -1, -1)
-        ], dim=-1).reshape(vis_len, d)  # [T, T, D//2] -> [L', D//2]
+
+        if patch_grid_size is None:
+            # 2D RoPE for a square vision grid
+            T = int(vis_len ** 0.5)
+            vis_base_angles = torch.outer(torch.arange(T).float(), vis_freqs)  # [T, D//4]
+            vis_angles = torch.cat([
+                vis_base_angles[:, None].expand(-1, T, -1),
+                vis_base_angles[None, :].expand(T, -1, -1)
+            ], dim=-1).reshape(vis_len, d)  # [T, T, D//2] -> [L', D//2]
+        else:
+            # Prefix tokens receive no RoPE; patch tokens receive 2D RoPE.
+            grid_h, grid_w = patch_grid_size
+            patch_len = grid_h * grid_w
+            expected_vis_len = num_prefix_tokens + patch_len
+            if vis_len != expected_vis_len:
+                raise ValueError(
+                    f"RoPE expected vis_len={expected_vis_len} for "
+                    f"{num_prefix_tokens} prefix + {grid_h}x{grid_w} patch tokens, got {vis_len}"
+                )
+            row_angles = torch.outer(torch.arange(grid_h).float(), vis_freqs)
+            col_angles = torch.outer(torch.arange(grid_w).float(), vis_freqs)
+            patch_angles = torch.cat([
+                row_angles[:, None].expand(-1, grid_w, -1),
+                col_angles[None, :].expand(grid_h, -1, -1)
+            ], dim=-1).reshape(patch_len, d)
+            prefix_angles = torch.zeros(num_prefix_tokens, d)
+            vis_angles = torch.cat([prefix_angles, patch_angles], dim=0)
+
         # no PE for conds
         cond_angles = torch.zeros(cond_len, dim // 2)  # [cond_len, D//2]
         angles = torch.cat([vis_angles, cond_angles], dim=0).repeat_interleave(2, dim=-1)  # [L, D]

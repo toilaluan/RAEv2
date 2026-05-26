@@ -9,8 +9,8 @@ device = "cuda"
 rae = RAE(
     encoder_name="dinov2-vit-b",
     decoder_config_path="configs/decoder/ViTXL/config.json",
-    pretrained_decoder_path="checkpoints/dinov2b-k1/stage1/imagenet/dinov2b-k1/decoder.pt",
-    normalization_stat_path="checkpoints/dinov2b-k1/stage1/imagenet/dinov2b-k1/stats.pt",
+    pretrained_decoder_path="checkpoints/stage1/imagenet/dinov2b-k1/decoder.pt",
+    normalization_stat_path="checkpoints/stage1/imagenet/dinov2b-k1/stats.pt",
     noise_tau=0.0,
 ).to(device, torch.bfloat16)
 
@@ -53,8 +53,11 @@ class FVRAE(RAE):
                 mode="bicubic",
                 align_corners=False,
             )
-        x = self.encoder.preprocess(x)
-        z = self.finevit(x, only_latents=True)
+        x = torch.nn.functional.interpolate(
+            x, 224 * (self.resolution // 256), mode="bicubic"
+        )
+        out = self.finevit.encode(x)
+        z = out.encoder_hidden_states
 
         if self.training and self.noise_tau > 0:
             z = self.noising(z)
@@ -85,14 +88,17 @@ class FVRAE(RAE):
                 else 1
             )
             z = z * torch.sqrt(latent_var + self.eps) + latent_mean
-        z_recon = self.finevit.patch_decoder(z, target_seq_length=z.shape[1] * 4)
+
+        prefix_tokens = z[:, :self.finevit.num_prefix_tokens, :]
+        patch_tokens = z[:, self.finevit.num_prefix_tokens :, :]
+        z_recon = self.finevit.decode(prefix_tokens, patch_tokens)
         output = self.decoder(z_recon, drop_cls_token=False).logits
         return self.decoder.unpatchify(output)
 
 
 test_recon(rae, "assets/samples/sample_2.png", "assets/sample_2_recon.jpg")
 
-finevit = AutoModel.from_pretrained("toilaluan/aabb", trust_remote_code=True)
+finevit = AutoModel.from_pretrained("toilaluan/ae-dino-2b", trust_remote_code=True)
 finevit = finevit.to(device, torch.bfloat16)
 
 
@@ -101,8 +107,8 @@ rae_w_fv = (
         finevit,
         encoder_name="dinov2-vit-b",
         decoder_config_path="configs/decoder/ViTXL/config.json",
-        pretrained_decoder_path="checkpoints/dinov2b-k1/stage1/imagenet/dinov2b-k1/decoder.pt",
-        normalization_stat_path="checkpoints/dinov2b-k1/stage1/imagenet/dinov2b-k1/stats.pt",
+        pretrained_decoder_path="checkpoints/stage1/imagenet/dinov2b-k1/decoder.pt",
+        normalization_stat_path="checkpoints/stage1/imagenet/dinov2b-k1/stats.pt",
         noise_tau=0.0,
     )
     .cuda()

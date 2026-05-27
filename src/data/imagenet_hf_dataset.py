@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional, Tuple, Union
 
 import torch
-from datasets import load_from_disk
+from datasets import load_from_disk, load_dataset
 from torch.utils.data import Dataset
 
 from .imagenet_classes import IMAGENET_CLASSES
@@ -49,14 +49,10 @@ class ImageNetHFDataset(Dataset):
         self.prompt_template = prompt_template
 
         # Determine the path to the arrow dataset
-        arrow_path = self.data_dir / "imagenet-latents-images"
-        split_str = "val" if split == "val" else ""
-        dataset_path = arrow_path / split_str if split_str else arrow_path
-        if not dataset_path.exists():
-            raise FileNotFoundError(f"Split '{split}' not found at {dataset_path}")
-
+        split_str = "validation" if split == "val" else "train"
         # Load the dataset using HuggingFace datasets
-        self.dataset = load_from_disk(str(dataset_path))
+        print(data_dir)
+        self.dataset = load_dataset(data_dir, split=split_str)
 
     def __len__(self) -> int:
         """Return the number of samples in the dataset."""

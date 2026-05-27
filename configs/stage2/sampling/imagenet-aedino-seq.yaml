@@ -7,7 +7,7 @@ stage_1:
     decoder_config_path: configs/decoder/ViTXL
     pretrained_decoder_path: checkpoints/stage1/imagenet/dinov2b-k1/decoder.pt
     noise_tau: 0.0
-    normalization_stat_path: checkpoints/stage1/imagenet/ae-dinov2-base/stats.pt
+    normalization_stat_path: checkpoints/stage1/imagenet/aedino2b-k1/stats.pt
     num_prefix_tokens: 9
     patch_grid_size:
     - 8
@@ -18,22 +18,22 @@ stage_2:
     input_size: 73
     in_channels: 768
     hidden_size:
-    - 1440
+    - 768
     - 2048
     depth:
-    - 28
+    - 12
     - 2
     num_heads:
-    - 20
+    - 12
     - 16
     mlp_ratio: 4.0
-    base_model_depth: 8
+    base_model_depth: 4
     num_prefix_tokens: 9
     patch_grid_size:
     - 8
     - 8
     use_learned_pos_embed: true
-  ckpt: checkpoints/stage2/imagenet/ae-dinov2-base-seq/checkpoint.pt
+  ckpt: ckpts/stage34/dji/checkpoints/ep-0000030.pt
 conditioning:
   type: label
   cfg_dropout_prob: 0.1
@@ -44,7 +44,7 @@ transport:
   prediction: x
   time_dist_type: logit-normal_0_1
 sampler:
-  num_steps: 100
+  num_steps: 50
 guidance:
   cfg:
     scale: 1.0
@@ -99,10 +99,12 @@ eval:
       split: val
       condition_type: label
       num_samples: 50000
+      reference_npz: /root/RAEv2/guided-diffusion/evaluations/VIRTUAL_imagenet256_labeled.npz
       metrics:
       - fid
-      - fdr6
-      - mind6
+      - inception_score
+      # - fdr6
+      # - mind6
 misc:
   latent_size:
   - 73

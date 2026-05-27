@@ -372,7 +372,7 @@ def encode_batch(model, images, device):
 
     with torch.no_grad():
         z = model.encode(images)
-
+        print(z.mean(), z.std())
     return z
 
 

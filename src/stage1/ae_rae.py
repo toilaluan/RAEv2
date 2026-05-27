@@ -99,7 +99,7 @@ class AERAE(nn.Module):
             )
 
         x = self.preprocess(x)
-        out = self.encoder(x, output_decoded_patches=False)
+        out = self.encoder.encode(x)
         z = out.encoder_hidden_states
         self._validate_latents(z)
 

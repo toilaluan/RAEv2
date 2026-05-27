@@ -7,7 +7,7 @@ stage_1:
     decoder_config_path: configs/decoder/ViTXL
     pretrained_decoder_path: checkpoints/stage1/imagenet/dinov2b-k1/decoder.pt
     noise_tau: 0.0
-    normalization_stat_path: checkpoints/stage1/imagenet/ae-dinov2-base/stats.pt
+    normalization_stat_path: checkpoints/stage1/imagenet/aedino2b-k1/stats.pt
     num_prefix_tokens: 9
     patch_grid_size:
     - 8
@@ -18,16 +18,16 @@ stage_2:
     input_size: 73
     in_channels: 768
     hidden_size:
-    - 1440
+    - 768
     - 2048
     depth:
-    - 28
+    - 12
     - 2
     num_heads:
-    - 20
+    - 12
     - 16
     mlp_ratio: 4.0
-    base_model_depth: 8
+    base_model_depth: 4
     num_prefix_tokens: 9
     patch_grid_size:
     - 8
@@ -62,9 +62,9 @@ training:
   grad_accum_steps: 1
   ema_decay: 0.9995
   num_workers: 4
-  log_interval: 100
+  log_interval: 20
   checkpoint_interval: 1
-  sample_every: 5000
+  sample_every: 2000
   clip_grad: 1.0
   global_seed: 42
   optimizer:
@@ -77,14 +77,14 @@ training:
     weight_decay: 0.0
   scheduler:
     type: linear
-    warmup_epochs: 25
+    warmup_epochs: 1
     decay_end_epoch: 50
     base_lr: 0.0002
     final_lr: 2.0e-05
     warmup_from_zero: false
   image_size: 256
 eval:
-  eval_interval: 5000
+  eval_interval: 100000
   eval_model: false
   eval_dir: results/stage2/eval
   datasets:

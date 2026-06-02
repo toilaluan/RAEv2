@@ -5,7 +5,7 @@ import torch
 from torchvision.transforms import PILToTensor, CenterCrop, Resize, ToPILImage
 from transformers import AutoModel
 import torch.nn as nn
-
+import torch.nn.functional as F
 from math import sqrt
 ### Original
 
@@ -39,7 +39,7 @@ def test_recon(rae_model, input_path, output_path):
     recon_img.save(output_path)
 
 
-test_recon(rae, "assets/samples/sample_2.png", "assets/sample_2_recon.jpg")
+test_recon(rae, "assets/samples/sample_3.png", "assets/sample_2_recon.jpg")
 
 ### Add new encoder
 
@@ -50,9 +50,7 @@ class AutoEncoderDino(nn.Module):
         self.load_model()
 
     def load_model(self):
-        self.model = AutoModel.from_pretrained(
-            "toilaluan/ae-dinov2-base", trust_remote_code=True
-        )
+        self.model = AutoModel.from_pretrained("toilaluan/w2", trust_remote_code=True)
         self.patch_size = 14
         self._embed_dim = self.model.backbone.hidden_size
 
@@ -66,10 +64,7 @@ class AutoEncoderDino(nn.Module):
         return out.encoder_hidden_states  # B, num_prefix + num_square_patches_flattened
 
     def decode(self, encoder_hidden_states: torch.Tensor):
-        prefix_tokens = encoder_hidden_states[:, : self.model.num_prefix_tokens]
-        patch_tokens = encoder_hidden_states[:, self.model.num_prefix_tokens :]
-        print(prefix_tokens.shape, patch_tokens.shape)
-        out = self.model.decode(prefix_tokens, patch_tokens)
+        out = self.model.decode_encoder_hidden_states(encoder_hidden_states)
         return out
 
 
@@ -130,6 +125,9 @@ class AERAE(RAE):
     def forward(self, x: torch.Tensor, return_latent: bool = False):
         z = self.encode(x)
         x_rec = self.decode(z)
+        x_rec = F.layer_norm(
+            x_rec, x_rec.shape[-1]
+        )
         if return_latent:
             return x_rec, z
         return x_rec
@@ -143,4 +141,4 @@ ae_rae = AERAE(
     noise_tau=0.0,
 ).cuda()
 
-test_recon(ae_rae, "assets/samples/sample_2.png", "assets/sample_2_recon_ae.jpg")
+test_recon(ae_rae, "assets/samples/sample_3.png", "assets/sample_2_recon_ae.jpg")

@@ -1,21 +1,21 @@
 stage_1:
   target: stage1.AERAE
   params:
-    encoder_name: toilaluan/ae-dinov2-base
+    encoder_name: toilaluan/w2
     resolution: 256
     ae_input_size: 224
     decoder_config_path: configs/decoder/ViTXL
     pretrained_decoder_path: checkpoints/stage1/imagenet/dinov2b-k1/decoder.pt
     noise_tau: 0.0
     normalization_stat_path: checkpoints/stage1/imagenet/aedino2b-k1/stats.pt
-    num_prefix_tokens: 9
+    num_prefix_tokens: 0
     patch_grid_size:
     - 8
     - 8
 stage_2:
   target: stage2.models.DDT.DiTwDDTHeadIGSequence
   params:
-    input_size: 73
+    input_size: 64
     in_channels: 768
     hidden_size:
     - 768
@@ -28,7 +28,7 @@ stage_2:
     - 16
     mlp_ratio: 4.0
     base_model_depth: 4
-    num_prefix_tokens: 9
+    num_prefix_tokens: 0
     patch_grid_size:
     - 8
     - 8
@@ -110,5 +110,5 @@ misc:
   - 73
   - 768
   num_classes: 1000
-  time_dist_shift_dim: 56064
+  time_dist_shift_dim: 49152
   time_dist_shift_base: 4096

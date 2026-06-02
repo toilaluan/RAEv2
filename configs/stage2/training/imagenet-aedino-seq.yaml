@@ -7,7 +7,7 @@ stage_1:
     decoder_config_path: configs/decoder/ViTXL
     pretrained_decoder_path: checkpoints/stage1/imagenet/dinov2b-k1/decoder.pt
     noise_tau: 0.0
-    normalization_stat_path: checkpoints/stage1/imagenet/aedino2b-k1/stats.pt
+    normalization_stat_path: pretrained_models/stage1/imagenet/finevit-dinov2b-k1/stats.pt
     num_prefix_tokens: 0
     patch_grid_size:
     - 8
@@ -52,7 +52,7 @@ guidance:
 dataset:
   target: imagenet
   type: hf
-  data_dir: ./data/imagenet-256
+  data_dir: ./data/imagenet_256
   split: train
   condition_type: label
   shared_tmpdir: ~/tmp
@@ -90,7 +90,7 @@ eval:
   datasets:
     imagenet:
       type: hf
-      data_dir: ./data/imagenet-256
+      data_dir: ./data/imagenet_256
       split: val
       condition_type: label
       metrics:

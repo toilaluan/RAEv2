@@ -119,9 +119,7 @@ class AERAE(nn.Module):
             latent_var = self.latent_var.to(z.device) if self.latent_var is not None else 1
             z = z * torch.sqrt(latent_var + self.eps) + latent_mean
 
-        prefix_tokens = z[:, : self.num_prefix_tokens]
-        patch_tokens = z[:, self.num_prefix_tokens :]
-        decoded_patches = self.encoder.decode(prefix_tokens, patch_tokens)
+        decoded_patches = self.encoder.decode_encoder_hidden_states(z)
         output = self.decoder(decoded_patches, drop_cls_token=False).logits
         return self.decoder.unpatchify(output)
 

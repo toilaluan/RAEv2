@@ -98,7 +98,7 @@ eval:
       - inception_score
 misc:
   latent_size:
-  - 73
+  - 64
   - 768
   num_classes: 1000
   time_dist_shift_dim: 49152

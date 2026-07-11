@@ -359,12 +359,8 @@ def encode_batch(model, images, device):
     """
     Encode a batch of images to latents.
 
-    This replicates the encoding logic from RAE.encode() but without
-    normalization stats (since we're computing those).
-
-    Supports both:
-    - VisionEncoder path (encoder_name): expects [0,255] range, handles own preprocessing
-    - Legacy path (encoder_cls): expects [0,1] range, uses encoder_mean/std
+    Uses the model's public ``encode_raw`` contract when available. The
+    fallback preserves compatibility with older RAE implementations.
 
     Args:
         model: RAE model
@@ -377,6 +373,9 @@ def encode_batch(model, images, device):
     images = images.to(device)
 
     with torch.no_grad():
+        if hasattr(model, "encode_raw"):
+            return model.encode_raw(images)
+
         # Check if encoder is a VisionEncoder (has preprocess method)
         is_vision_encoder = hasattr(model.encoder, 'preprocess')
 
@@ -450,21 +449,8 @@ def main():
     if rae_config is None:
         raise ValueError("Config must contain 'stage_1' section")
 
-    # Detect encoder path: new (encoder_name) vs legacy (encoder_cls)
-    encoder_name = rae_config.params.get("encoder_name", None)
-    encoder_cls = rae_config.params.get("encoder_cls", None)
-    is_vision_encoder = encoder_name is not None
-
-    # Get image size from config based on encoder type
-    if is_vision_encoder:
-        # New path: use resolution
-        image_size_from_config = rae_config.params.get("resolution", 256)
-    else:
-        # Legacy path: use encoder_input_size
-        image_size_from_config = rae_config.params.get("encoder_input_size", 224)
-
     if rank == 0:
-        print(f"Instantiating model...")
+        print("Instantiating model...")
 
     # Temporarily remove normalization_stat_path to avoid loading stats
     original_stat_path = rae_config.params.get("normalization_stat_path", None)
@@ -473,21 +459,28 @@ def main():
     model = instantiate_from_config(rae_config).to(device)
     model.eval()
 
+    if not hasattr(model, "latent_shape"):
+        raise TypeError(
+            f"{type(model).__name__} must expose latent_shape to compute statistics"
+        )
+    expected_shape = tuple(model.latent_shape)
+    image_size_from_config = getattr(model, "resolution", args.image_size)
+
     if rank == 0:
-        encoder_id = encoder_name or encoder_cls or "unknown"
+        encoder_id = (
+            rae_config.params.get("encoder_name")
+            or rae_config.params.get("base_model_name_or_path")
+            or type(model).__name__
+        )
         print(f"Encoder: {encoder_id}")
-        print(f"Encoder type: {'VisionEncoder (new)' if is_vision_encoder else 'Legacy'}")
+        print(f"Encoder type: {type(model).__name__}")
         print(f"Image size from config: {image_size_from_config}")
         print(f"Latent dim: {model.latent_dim}")
         print(f"Base patches: {model.base_patches}")
 
-    # Calculate expected output shape
-    h = w = int(sqrt(model.base_patches))
-    expected_shape = (model.latent_dim, h, w)
-
     if rank == 0:
         print(f"Expected stat shape: {expected_shape}")
-        print(f"\nLoading dataset...")
+        print("\nLoading dataset...")
 
     # Create dataloader
     loader, total_samples = create_dataloader(args, args.image_size, rank, world_size, is_distributed)
@@ -507,7 +500,7 @@ def main():
 
     # Process all batches
     if rank == 0:
-        print(f"\nComputing statistics...")
+        print("\nComputing statistics...")
         pbar = tqdm(total=len(loader), desc="Processing")
     else:
         pbar = None
@@ -533,7 +526,7 @@ def main():
 
     # Only rank 0 saves and prints
     if rank == 0:
-        print(f"\nStatistics computed:")
+        print("\nStatistics computed:")
         print(f"  Mean shape: {mean.shape}")
         print(f"  Mean range: [{mean.min():.6f}, {mean.max():.6f}]")
         print(f"  Var shape: {var.shape}")
@@ -553,7 +546,19 @@ def main():
         stats = {
             'mean': mean.cpu(),
             'var': var.cpu(),
+            'num_samples': aggregator.n,
+            'latent_shape': list(expected_shape),
+            'model_target': rae_config.target,
         }
+        for key in (
+            'base_model_name_or_path',
+            'compressor_model_name_or_path',
+            'base_revision',
+            'compressor_revision',
+        ):
+            value = rae_config.params.get(key)
+            if value is not None:
+                stats[key] = value
         torch.save(stats, output_path)
         print(f"\nSaved statistics to {output_path}")
 
@@ -563,14 +568,20 @@ def main():
             existing = torch.load(original_stat_path, map_location='cpu')
 
             if existing.get('mean') is not None:
-                mean_diff = (mean.cpu() - existing['mean']).abs()
-                print(f"  Mean difference: max={mean_diff.max():.6f}, mean={mean_diff.mean():.6f}")
+                if tuple(existing['mean'].shape) == tuple(mean.shape):
+                    mean_diff = (mean.cpu() - existing['mean']).abs()
+                    print(f"  Mean difference: max={mean_diff.max():.6f}, mean={mean_diff.mean():.6f}")
+                else:
+                    print(f"  Mean shape differs: {tuple(existing['mean'].shape)} vs {tuple(mean.shape)}")
             else:
-                print(f"  Existing mean is None (will use 0)")
+                print("  Existing mean is None (will use 0)")
 
             if existing.get('var') is not None:
-                var_diff = (var.cpu() - existing['var']).abs()
-                print(f"  Var difference: max={var_diff.max():.6f}, mean={var_diff.mean():.6f}")
+                if tuple(existing['var'].shape) == tuple(var.shape):
+                    var_diff = (var.cpu() - existing['var']).abs()
+                    print(f"  Var difference: max={var_diff.max():.6f}, mean={var_diff.mean():.6f}")
+                else:
+                    print(f"  Var shape differs: {tuple(existing['var'].shape)} vs {tuple(var.shape)}")
 
         print("\nDone!")
 

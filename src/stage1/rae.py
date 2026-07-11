@@ -57,12 +57,18 @@ class RAE(nn.Module):
         print(f"RAE: encoder={encoder_name}, resolution={resolution}, "
               f"patch_size={self.encoder_patch_size}, hidden_size={self.latent_dim}")
 
+    @property
+    def latent_shape(self) -> tuple[int, int, int]:
+        grid_size = int(sqrt(self.base_patches))
+        return self.latent_dim, grid_size, grid_size
+
     def noising(self, x: torch.Tensor) -> torch.Tensor:
         noise_sigma = self.noise_tau * torch.rand((x.size(0),) + (1,) * (len(x.shape) - 1), device=x.device)
         return x + noise_sigma * torch.randn_like(x)
 
     @torch.no_grad()
-    def encode(self, x: torch.Tensor) -> torch.Tensor:
+    def encode_raw(self, x: torch.Tensor) -> torch.Tensor:
+        """Encode images without applying latent normalization."""
         if x.max() <= 1.0:
             x = x * 255.0
         _, _, h, w = x.shape
@@ -77,6 +83,11 @@ class RAE(nn.Module):
         b, n, c = z.shape
         h = w = int(sqrt(n))
         z = z.transpose(1, 2).view(b, c, h, w)
+        return z
+
+    @torch.no_grad()
+    def encode(self, x: torch.Tensor) -> torch.Tensor:
+        z = self.encode_raw(x)
         if self.do_normalization:
             latent_mean = self.latent_mean.to(z.device) if self.latent_mean is not None else 0
             latent_var = self.latent_var.to(z.device) if self.latent_var is not None else 1

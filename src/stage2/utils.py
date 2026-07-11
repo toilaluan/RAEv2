@@ -39,6 +39,36 @@ def validate_stage2_config(config: Stage2Config) -> None:
         raise ValueError("conditioning.text_encoder must be set when conditioning.type='text'.")
 
 
+def validate_rae_latent_contract(rae: torch.nn.Module, config: Stage2Config) -> None:
+    """Fail early when the stage-1 latent geometry and DiT config disagree."""
+    configured = tuple(config.misc.latent_size)
+    if len(configured) != 3:
+        raise ValueError(f"misc.latent_size must be [C, H, W], got {configured}")
+    channels, height, width = configured
+    if height != width:
+        raise ValueError(f"Stage-2 currently requires square latents, got {configured}")
+
+    actual = getattr(rae, "latent_shape", None)
+    if actual is not None and tuple(actual) != configured:
+        raise ValueError(
+            f"Stage-1 returns latent_shape={tuple(actual)}, but misc.latent_size={configured}"
+        )
+
+    params = config.stage_2.params
+    model_channels = params.get("in_channels")
+    if model_channels is not None and int(model_channels) != channels:
+        raise ValueError(
+            f"stage_2.params.in_channels={model_channels} does not match "
+            f"misc.latent_size channels={channels}"
+        )
+    input_size = params.get("input_size")
+    if input_size is not None and int(input_size) != height:
+        raise ValueError(
+            f"stage_2.params.input_size={input_size} does not match "
+            f"misc.latent_size spatial size={height}"
+        )
+
+
 ##############################################################
 # Shared helpers used by both stage2/engine
 ##############################################################

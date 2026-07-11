@@ -180,6 +180,51 @@ Example training configs for different tasks (all under `configs/stage2/training
 | T2I | `t2i-dinov3l-k1.yaml` | `t2i-dinov3l-k7.yaml` | `t2i-dinov3l-k23.yaml` |
 | NWM | `nwm-dinov3l-k1.yaml` | `nwm-dinov3l-k7.yaml` | `nwm-dinov3l-k23.yaml` |
 
+### Compressed DINOv3-L K7 RAE
+
+The class-conditioned ImageNet path also supports the Hugging Face
+[`toilaluan/raev2-dinov3l-k7`](https://huggingface.co/toilaluan/raev2-dinov3l-k7)
+RAE wrapped by [`toilaluan/raev2-compressor`](https://huggingface.co/toilaluan/raev2-compressor).
+The frozen pair reduces the latent grid from `1024x16x16` to `1024x8x8`.
+Both revisions are pinned in the provided configs and are downloaded by
+Transformers on first use. The config values may also point to local snapshots.
+
+The published artifacts intentionally contain no diffusion normalization
+statistics. Compute compact ImageNet statistics before training; old 16x16 K7
+statistics are incompatible.
+
+```bash
+uv run torchrun --nproc_per_node=8 \
+    scripts/stage1/compute_encoder_stats.py \
+    --config configs/stage2/training/imagenet-dinov3l-k7-compressed.yaml \
+    --use-hf-dataset \
+    --hf-data-dir data/imagenet-256 \
+    --batch-size 256 \
+    --output-path pretrained_models/stage1/imagenet/dinov3l-k7-compressed/stats.pt
+
+uv run torchrun --nproc_per_node=8 \
+    src/train.py \
+    --config configs/stage2/training/imagenet-dinov3l-k7-compressed.yaml \
+    --results-dir ckpts/stage2 \
+    --precision bf16 \
+    --compile \
+    --wandb
+```
+
+The compact stage-2 model must be trained from scratch; existing 16x16 stage-2
+checkpoints cannot be reused. For canonical class-conditioned evaluation, place
+the resulting checkpoint at the path configured by the sampling YAML and run:
+
+```bash
+export EXPERIMENT_NAME=<your-run-name>
+uv run torchrun --nproc_per_node=8 src/offline_eval.py \
+    --config configs/stage2/sampling/imagenet-dinov3l-k7-compressed.yaml \
+    --precision bf16
+```
+
+This generates 50,000 samples from the balanced ImageNet validation labels and
+reports FID and Inception Score through the existing distributional evaluator.
+
 ### Evaluation
 
 **Online Evaluation**: Similar to [JiT](https://github.com/LTH14/JiT), we support online evaluation during training. See the `eval` block in any config under `configs/stage2/training/`.

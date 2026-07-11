@@ -25,7 +25,7 @@ from stage1 import RAE
 from stage2.engine import train_one_epoch
 from stage2.models import Stage2ModelProtocol
 from stage2.transport import create_sampler, create_transport
-from stage2.utils import setup_text_encoder, validate_stage2_config
+from stage2.utils import setup_text_encoder, validate_rae_latent_contract, validate_stage2_config
 from utils.checkpoint import load_stage2_checkpoint, save_stage2_checkpoint
 from utils.dist_utils import cleanup_distributed, main_process_first, setup_distributed
 from utils.model_utils import instantiate_from_config
@@ -114,6 +114,7 @@ def main():
     # stage1: rae - frozen
     rae: RAE = instantiate_from_config(config.stage_1).to(device)
     rae.eval()
+    validate_rae_latent_contract(rae, config)
 
     # repa target encoder
     repa_target_encoder = None

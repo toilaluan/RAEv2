@@ -32,7 +32,7 @@ from eval.datasets import normalize_eval_datasets, prepare_eval_datasets
 from stage1 import RAE
 from stage2.models import Stage2ModelProtocol
 from stage2.transport import create_sampler, create_transport
-from stage2.utils import setup_text_encoder, validate_stage2_config
+from stage2.utils import setup_text_encoder, validate_rae_latent_contract, validate_stage2_config
 from utils.dist_utils import main_process_first
 from utils.guidance_utils import get_model_forward_fn
 from utils.logging import save_eval_to_csv
@@ -91,6 +91,7 @@ def main(args):
 
     rae: RAE = instantiate_from_config(config.stage_1).to(device)
     rae.eval()
+    validate_rae_latent_contract(rae, config)
 
     # repa target encoder
     repa_target_encoder = None
